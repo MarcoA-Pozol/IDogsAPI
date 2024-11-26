@@ -4,7 +4,7 @@ from app.database import get_database
 from bson import ObjectId
 from typing import List
 # Cache functions
-from ..redis.crud import save_hash, get_hash, delete_hash
+from ..redis.utils import save_hash, get_hash, delete_hash
 
 router = APIRouter()
 
@@ -31,7 +31,7 @@ async def list_breeds():
 @router.get("/breeds/{breed_id}", response_model=Breed)
 async def retrieve_breed(breed_id):
     """
-        Retrieves a specific Breed by thier ObjectID.
+        Retrieves a specific Breed by their ObjectID.
     """
     try:
         # Check if requested object exists in cache and get it
@@ -59,21 +59,34 @@ async def retrieve_breed(breed_id):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {e}")    
 
+        
 @router.post("/breeds/", response_model=Breed)
 async def create_breed(breed: Breed):
     """
-        Creates a new breed.
+    Creates a new breed.
     """
     db = await get_database()
+
     try:
         # Save on database with MongoDB
         result = await db["breeds"].insert_one(breed.model_dump())
-        # Save on cache with Redis
-        #save_hash(key=breed.model_dump()["id"], data=breed.model_dump())
+        
+        if result.acknowledged:
+            # Fetch saved object from MongoDB
+            fetched_breed = await db["breeds"].find_one({"_id": result.inserted_id})
+            
+            if fetched_breed:
+                # Transform MongoDB `_id` to string for JSON compatibility
+                fetched_breed["_id"] = str(fetched_breed["_id"])
+
+                # Save on cache with Redis
+                save_hash(key=fetched_breed["_id"], data=fetched_breed)
+
+                # Return the fetched document
+                return fetched_breed
+            else:
+                raise HTTPException(status_code=404, detail="Breed not found after insertion")
+        else:
+            raise HTTPException(status_code=500, detail="Breed not created")
     except Exception as e:
-        return f"Error: {e}"
-    
-    if result.acknowledged:
-        return {"id": str(result.inserted_id), **breed.model_dump()}
-    else:
-        raise HTTPException(status_code=500, detail="Breed not created")
+        raise HTTPException(status_code=500, detail=f"Error: {e}")

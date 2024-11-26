@@ -4,9 +4,6 @@ from os import getenv
 
 
 """Keys are used to identify data stored in Redis.
-Example: If caching user information, you might use the user's ID as the key.
-python
-Copiar código
 redis_client.set(f"user:{user_id}", json.dumps(user_data))"""
 
 

@@ -1,4 +1,4 @@
-from . connection import redis_client
+from .connection import redis_client
 from redis.exceptions import ResponseError
 from fastapi import HTTPException
 
@@ -7,7 +7,7 @@ def save_hash(key: str, data: dict):
         sanitized_data = {str(k): str(v) for k, v in data.items()}
         redis_client.hset(name=key, mapping=sanitized_data)
     except ResponseError as e:
-        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Redis error: {e}")
 
 def get_hash(key: str):
     try:
@@ -24,4 +24,4 @@ def delete_hash(key: str, keys: list):
     try:
         redis_client.hdel(key, *keys)
     except ResponseError as e:
-        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Redis error: {e}")
