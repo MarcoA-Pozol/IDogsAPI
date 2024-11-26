@@ -64,29 +64,59 @@ async def retrieve_breed(breed_id):
 async def create_breed(breed: Breed):
     """
     Creates a new breed.
+
+    This endpoint checks if the provided breed already exists in the MongoDB database 
+    by matching its `name` and `country` fields. If the breed exists, it skips saving 
+    and directly returns the existing breed's data. If it does not exist, the breed is saved 
+    to the database and cached in Redis for future queries.
+
+    Process:
+    1. Verify if the breed exists in the database:
+        - If found: Return the existing breed data.
+        - If not found: Save the new breed to the database.
+    2. After saving, retrieve the saved document, transform its `_id` for JSON compatibility, and cache the data in Redis.
+    3. Return the newly saved breed data.
+
+    Args:
+        breed (Breed): A Pydantic model representing the breed object, containing fields like `name` and `country`.
+
+    Returns:
+        dict: The breed's data either from the database or from the newly inserted document.
+
+    Raises:
+        HTTPException: 
+            - 404: If the breed could not be found after insertion.
+            - 500: If there was an issue saving the breed or another unexpected error occurred.
     """
     db = await get_database()
 
-    try:
-        # Save on database with MongoDB
-        result = await db["breeds"].insert_one(breed.model_dump())
-        
-        if result.acknowledged:
-            # Fetch saved object from MongoDB
-            fetched_breed = await db["breeds"].find_one({"_id": result.inserted_id})
+    existing_breed = await db["breeds"].find_one({"name":breed.name, "country":breed.country}) # Find one requires a filter dictionary, for example {"key":"value"} to search for the item that matches it, not an object or complete dictionary instead.
+    print(existing_breed)
+    if existing_breed:
+        print(f"{existing_breed} This object already exists in database.")
+        return existing_breed
+    else:
+        try:
+            # Save on database with MongoDB
+            result = await db["breeds"].insert_one(breed.model_dump())
+            print("Data saved on DB: {}".format(result))
             
-            if fetched_breed:
-                # Transform MongoDB `_id` to string for JSON compatibility
-                fetched_breed["_id"] = str(fetched_breed["_id"])
+            if result.acknowledged:
+                # Fetch saved object from MongoDB
+                fetched_breed = await db["breeds"].find_one({"_id": result.inserted_id})
+                
+                if fetched_breed:
+                    # Transform MongoDB `_id` to string for JSON compatibility
+                    fetched_breed["_id"] = str(fetched_breed["_id"])
 
-                # Save on cache with Redis
-                save_hash(key=fetched_breed["_id"], data=fetched_breed)
+                    # Save on cache with Redis
+                    save_hash(key=fetched_breed["_id"], data=fetched_breed)
 
-                # Return the fetched document
-                return fetched_breed
+                    # Return the fetched document
+                    return fetched_breed
+                else:
+                    raise HTTPException(status_code=404, detail="Breed not found after insertion")
             else:
-                raise HTTPException(status_code=404, detail="Breed not found after insertion")
-        else:
-            raise HTTPException(status_code=500, detail="Breed not created")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
+                raise HTTPException(status_code=500, detail="Breed not created")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error: {e}")
